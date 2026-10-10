@@ -3,10 +3,10 @@
   "id": "csw",
   "name": "Collins-style (open International list)",
   "short": "Open International",
-  "note": "ENABLE + SCOWL (US/UK/Canadian/Australian spellings, size 70) + Collins two-letter words. Not the official Collins Scrabble Words list.",
+  "note": "ENABLE + Wordnik game list + SCOWL (US/UK/Canadian/Australian spellings, size 70) + Collins two-letter words. Not the official Collins Scrabble Words list.",
   "file": "csw.dawg",
-  "words": 180312,
-  "bytes": 536380
+  "words": 202236,
+  "bytes": 590384
  },
  {
   "id": "nwl",
@@ -14,7 +14,7 @@
   "short": "ENABLE (NWL-style)",
   "note": "ENABLE (public domain) + NWL two-letter words. Not the official NASPA Word List.",
   "file": "nwl.dawg",
-  "words": 168562,
+  "words": 168561,
   "bytes": 482544
  },
  {

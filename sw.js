@@ -1,20 +1,21 @@
 // Aunty Carol's Scrabble service worker: app shell + word lists cached so it opens offline from the Home Screen.
-var CACHE = 'carol-scrabble-23c9425517';
+var CACHE = 'carol-scrabble-313aba61de';
+var DICT_CACHE = 'carol-scrabble-dict-v2';   // bump when the built-in word lists change
 var SHELL = ['./', './index.html', './manifest.webmanifest', './icons/icon-192.png', './icons/icon-512.png', './icons/apple-touch-icon.png'];
 self.addEventListener('install', function (e) {
   e.waitUntil(caches.open(CACHE).then(function (c) { return c.addAll(SHELL); }).then(function () { return self.skipWaiting(); }));
 });
 self.addEventListener('activate', function (e) {
   e.waitUntil(caches.keys().then(function (keys) {
-    // keep word lists from the previous version so they don't need re-downloading
-    return Promise.all(keys.filter(function (k) { return k !== CACHE && k.indexOf('carol-scrabble-dict') !== 0; }).map(function (k) { return caches.delete(k); }));
+    // keep the current word-list cache across app updates; drop old app shells and outdated word lists
+    return Promise.all(keys.filter(function (k) { return k !== CACHE && k !== DICT_CACHE; }).map(function (k) { return caches.delete(k); }));
   }).then(function () { return self.clients.claim(); }));
 });
 self.addEventListener('fetch', function (e) {
   var url = new URL(e.request.url);
   if (e.request.method !== 'GET' || url.origin !== location.origin) return;   // PeerJS CDN / broker go straight to the network
   if (/\/dict\/.+\.dawg$/.test(url.pathname)) {   // word lists: cache-first (big, rarely change)
-    e.respondWith(caches.open('carol-scrabble-dict-v1').then(function (c) {
+    e.respondWith(caches.open(DICT_CACHE).then(function (c) {
       return c.match(e.request).then(function (hit) { return hit || fetch(e.request).then(function (res) { if (res.ok) c.put(e.request, res.clone()); return res; }); });
     }));
     return;
