@@ -1,0 +1,29 @@
+[
+ {
+  "id": "csw",
+  "name": "Collins-style (open International list)",
+  "short": "Open International",
+  "note": "ENABLE + SCOWL (US/UK/Canadian/Australian spellings, size 70) + Collins two-letter words. Not the official Collins Scrabble Words list.",
+  "file": "csw.dawg",
+  "words": 180312,
+  "bytes": 536380
+ },
+ {
+  "id": "nwl",
+  "name": "NWL-style (ENABLE, North American)",
+  "short": "ENABLE (NWL-style)",
+  "note": "ENABLE (public domain) + NWL two-letter words. Not the official NASPA Word List.",
+  "file": "nwl.dawg",
+  "words": 168562,
+  "bytes": 482544
+ },
+ {
+  "id": "kids",
+  "name": "Kid-friendly",
+  "short": "Kid-friendly",
+  "note": "Common everyday words (SCOWL size 35, US/UK) with rude/grown-up words removed.",
+  "file": "kids.dawg",
+  "words": 40028,
+  "bytes": 123180
+ }
+]
