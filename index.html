@@ -192,6 +192,13 @@ footer { text-align: center; color: #9c6b80; font-size: 13px; margin: 18px 0 6px
 
 .drag-ghost.home { transform: translate(-50%, -50%) scale(.9); opacity: .85; }
 
+.av { display: inline-flex; align-items: center; justify-content: center; width: 22px; height: 22px; border-radius: 50%; background: radial-gradient(circle at 35% 30%, #ffd1e3, #e64980); font-size: 13px; margin-right: 4px; vertical-align: -4px; box-shadow: 0 1px 3px rgba(166,30,77,.35); }
+.t.cpunew { animation: cpudrop .32s cubic-bezier(.2,1.4,.5,1); border-color: #e64980; }
+@keyframes cpudrop { from { transform: translateY(-60%) scale(1.35); opacity: 0; } to { transform: none; opacity: 1; } }
+.thinking::after { content: ''; display: inline-block; width: 1.2em; text-align: left; animation: dots 1.2s steps(4) infinite; }
+@keyframes dots { 0% { content: ''; } 25% { content: '.'; } 50% { content: '..'; } 75% { content: '...'; } }
+@media (max-width: 560px) { .pl.cpu .nm small { display: none; } .pl.cpu .av { width: 18px; height: 18px; font-size: 11px; margin-right: 2px; } }
+
 </style>
 </head>
 <body>
@@ -242,6 +249,18 @@ footer { text-align: center; color: #9c6b80; font-size: 13px; margin: 18px 0 6px
       <div class="seg" id="segMode">
         <button data-v="pass">📱 Pass &amp; play (one device)</button>
         <button data-v="online">🌐 Online (two devices)</button>
+        <button data-v="cpu">🤖 vs Computer</button>
+      </div>
+
+      <div id="optCpu" hidden>
+        <div class="label">Your name</div>
+        <input class="txt" id="cpuName" maxlength="16" autocomplete="off" autocapitalize="words" placeholder="Your name">
+        <div class="label">How good is the computer?</div>
+        <div class="seg col" id="segLevel">
+          <button data-v="easy"><b>🌱 Easy</b><small>Everyday words, modest scores</small></button>
+          <button data-v="medium"><b>🌸 Medium</b><small>Good, not greedy plays</small></button>
+          <button data-v="expert"><b>🌺 Expert</b><small>Best score + keeps good tiles; challenges phonies</small></button>
+        </div>
       </div>
 
       <div id="optPass">
@@ -585,7 +604,7 @@ footer { text-align: center; color: #9c6b80; font-size: 13px; margin: 18px 0 6px
       v: 1, dict: o.dict || 'csw', check: o.check === 'challenge' ? 'challenge' : 'auto', chPenalty: o.chPenalty === '5' ? '5' : 'turn',
       clock: { on: !!(o.clockMs), ms: o.clockMs || 0 }, mode: o.mode || 'pass',
       board: new Array(N * N).fill(null), bag: shuffle(fullBag(), o.rng),
-      players: (o.players || [{ name: 'Player 1' }, { name: 'Player 2' }]).map(function (p) { return { name: p.name, rack: [], score: 0, used: 0, kind: 'human', cid: p.cid || null }; }),
+      players: (o.players || [{ name: 'Player 1' }, { name: 'Player 2' }]).map(function (p) { return { name: p.name, rack: [], score: 0, used: 0, kind: p.cpu ? 'cpu' : 'human', level: p.cpu || null, cid: p.cid || null }; }),
       id: o.id || ('g' + Math.random().toString(36).slice(2, 10)), cur: 0, turn: 0, log: [], scoreless: 0, extra: (o.extra || []).map(function (w) { return String(w).toUpperCase(); }), proposal: null, dictMeta: o.dictMeta || null, last: null, pendingOut: null, over: null, turnStart: null, bingos: 0
     };
     if (o.bag) G.bag = o.bag.slice();
@@ -776,7 +795,7 @@ footer { text-align: center; color: #9c6b80; font-size: 13px; margin: 18px 0 6px
     return {
       v: 1, id: G.id || '', mySeat: seat, dict: G.dict, check: G.check, chPenalty: G.chPenalty, clock: G.clock, mode: G.mode,
       board: G.board, bag: G.bag.length, rack: G.players[seat].rack.slice(),
-      players: G.players.map(function (p) { return { name: p.name, score: p.score, used: p.used, count: p.rack.length }; }),
+      players: G.players.map(function (p) { return { name: p.name, score: p.score, used: p.used, count: p.rack.length, cpu: p.kind === 'cpu' ? p.level : null }; }),
       cur: G.cur, turn: G.turn, log: G.log, scoreless: G.scoreless, pendingOut: G.pendingOut, turnStart: G.turnStart, bingos: G.bingos,
       extra: G.extra || [], proposal: G.proposal || null, dictMeta: G.dictMeta || null,
       last: G.last ? { seat: G.last.seat, turn: G.last.turn, placed: G.last.placed, score: G.last.score, words: G.last.words, challenged: !!G.last.challenged, bingo: G.last.bingo } : null,
@@ -910,6 +929,76 @@ footer { text-align: center; color: #9c6b80; font-size: 13px; margin: 18px 0 6px
     if (opts.top) out = out.slice(0, opts.top);
     return out;
   }
+  // ---------- computer opponent ----------
+  // leave evaluation (points a kept tile/combination is worth for future turns; simplified from common equity tables)
+  var LEAVE = { '?': 25, S: 8, Z: 3, X: 3.5, E: 3.5, R: 1.5, H: 1.5, A: 1, C: 1, D: 0.5, M: 0.5, N: 0.5, T: 0.5, L: 0, P: -0.5, K: -0.5, Y: -0.5,
+    I: -1, O: -1.5, J: -1.5, B: -2, F: -2, G: -2, U: -3, W: -3.5, V: -5.5, Q: -7 };
+  function leaveValue(tiles) {
+    if (!tiles.length) return 0;
+    var v = 0, cnt = {}, vow = 0, con = 0;
+    tiles.forEach(function (l) { v += LEAVE[l] || 0; cnt[l] = (cnt[l] || 0) + 1; if ('AEIOU'.indexOf(l) >= 0) vow++; else if (l !== '?') con++; });
+    Object.keys(cnt).forEach(function (l) { if (cnt[l] > 1 && l !== '?') v -= (l === 'S' ? 2 : l === 'E' ? 2.5 : 4) * (cnt[l] - 1); });
+    if (cnt.E && cnt.R) v += 2.5;
+    if (cnt.I && cnt.N && cnt.G) v += 5;
+    if (cnt.Q && cnt.U) v += 4;
+    if (vow - con > 1) v -= 3 * (vow - con - 1) + 2;
+    if (con - vow > 2) v -= 2 * (con - vow - 2);
+    if (tiles.length >= 3 && !vow && !cnt['?']) v -= 3;
+    return v;
+  }
+  function rackAfter(rack, placed) { var r = rack.slice(); placed.forEach(function (t) { var i = r.indexOf(t.b ? BLANK : t.l); if (i >= 0) r.splice(i, 1); }); return r; }
+  function mkRng(seed) { var s = (seed >>> 0) || 1; return function () { s = (s + 0x6D2B79F5) >>> 0; var t = Math.imul(s ^ (s >>> 15), 1 | s); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; }; }
+  function bestKeep(rack) {     // which tiles to keep when exchanging (max leave value over all subsets)
+    var best = { keep: [], v: -1e9 };
+    for (var m = 0; m < (1 << rack.length); m++) {
+      var keep = []; for (var i = 0; i < rack.length; i++) if (m & (1 << i)) keep.push(rack[i]);
+      if (keep.length === rack.length) continue;
+      var v = leaveValue(keep); if (v > best.v) best = { keep: keep, v: v };
+    }
+    var ret = rack.slice(); best.keep.forEach(function (l) { ret.splice(ret.indexOf(l), 1); });
+    return { give: ret, keep: best.keep, v: best.v };
+  }
+  // state: {board, rack, bag (count), level 'easy'|'medium'|'expert', check, last: {words}, canChallenge, pendingOut, oppTiles, seed}
+  // lex: game lexicon (has/edge/a); easyDawg: optional everyday-words list used as Easy's vocabulary.
+  function aiChoose(state, lex, easyDawg) {
+    var rng = mkRng(state.seed || 1), lvl = state.level || 'medium', rack = state.rack, bag = state.bag;
+    var lastBad = state.last && state.last.words ? state.last.words.filter(function (w) { return !lex.has(w); }) : [];
+    if (state.pendingOut) return lvl === 'expert' && lastBad.length ? { type: 'challenge', words: lastBad } : { type: 'accept' };
+    if (state.canChallenge && lvl === 'expert' && lastBad.length) return { type: 'challenge', words: lastBad };
+    var giveUp = function () {
+      if (bag >= RACK) { var g = lvl === 'easy' ? rack.slice() : bestKeep(rack).give; if (!g.length) g = rack.slice(); return { type: 'exchange', letters: g }; }
+      return { type: 'pass' };
+    };
+    var pickRange = function (ms, lo, hi) {   // ms sorted by score ascending; pick uniformly between percentiles lo..hi
+      var a = Math.floor(lo * (ms.length - 1)), b = Math.max(a, Math.floor(hi * (ms.length - 1)));
+      return ms[a + Math.floor(rng() * (b - a + 1))];
+    };
+    var asPlay = function (m, extra) { var o = { type: 'play', placed: m.placed, word: m.word, pos: m.pos, score: m.score, bingo: m.bingo }; if (extra) for (var k in extra) o[k] = extra[k]; return o; };
+    if (lvl === 'easy') {
+      var ms = [];
+      if (easyDawg) ms = genMoves(state.board, rack, easyDawg).filter(function (m) { var inf = analyze(state.board, m.placed); return inf.ok && invalidWords(lex, inf.words).length === 0; });
+      if (!ms.length) ms = genMoves(state.board, rack, lex);
+      if (!ms.length) return giveUp();
+      ms.sort(function (x, y) { return x.score - y.score; });
+      return asPlay(pickRange(ms, 0.25, 0.6), { source: easyDawg ? 'everyday' : 'main' });
+    }
+    var all = genMoves(state.board, rack, lex);
+    if (!all.length) return giveUp();
+    if (lvl === 'medium') { var asc = all.slice().sort(function (x, y) { return x.score - y.score; }); return asPlay(pickRange(asc, 0.6, 0.8), { pct: [0.6, 0.8] }); }
+    // expert: score + leave
+    var best = null;
+    all.forEach(function (m) {
+      var left = rackAfter(rack, m.placed), eq;
+      if (bag > 0) eq = m.score + leaveValue(left) * (bag < 7 ? 0.5 : 1);
+      else eq = m.score - 2 * left.reduce(function (s, l) { return s + (l === BLANK ? 0 : VALUES[l]); }, 0) + (left.length ? 0 : 2 * (state.oppTiles || 5) * 1.6);
+      if (!best || eq > best.eq) best = { m: m, eq: eq, leave: left };
+    });
+    if (bag >= RACK) {
+      var ex = bestKeep(rack);
+      if (ex.v > best.eq + 5 && best.m.score < 25) return { type: 'exchange', letters: ex.give, keep: ex.keep, eq: ex.v, vs: best.eq };
+    }
+    return asPlay(best.m, { eq: Math.round(best.eq * 10) / 10, leave: best.leave.join('') });
+  }
   function topMoves(board, rack, dawg, n) { return genMoves(board, rack, dawg, { top: n || 5 }); }
   function isHintName(name) { return String(name || '').trim().toLowerCase() === 'jp3'; }
   function turnPingKey(v, prev) { if (!v || v.over || v.cur !== v.mySeat) return null; var k = v.turn + ':' + v.cur; return k === prev ? null : k; }
@@ -938,7 +1027,7 @@ footer { text-align: center; color: #9c6b80; font-size: 13px; margin: 18px 0 6px
   var PIN_SALT = 'aunty-carol-scrabble-v1:';
   function pinHash(pin) { return sha256(PIN_SALT + String(pin)); }
 
-  return { buildDawg: buildDawg, dawgWords: dawgWords, packWords: packWords, unpackWords: unpackWords, lexicon: lexicon, propose: propose, vote: vote, N: N, CENTER: CENTER, BLANK: BLANK, VALUES: VALUES, DIST: DIST, PREM: PREM, BINGO: BINGO, RACK: RACK, Dawg: Dawg,
+  return { aiChoose: aiChoose, leaveValue: leaveValue, bestKeep: bestKeep, mkRng: mkRng, buildDawg: buildDawg, dawgWords: dawgWords, packWords: packWords, unpackWords: unpackWords, lexicon: lexicon, propose: propose, vote: vote, N: N, CENTER: CENTER, BLANK: BLANK, VALUES: VALUES, DIST: DIST, PREM: PREM, BINGO: BINGO, RACK: RACK, Dawg: Dawg,
     fullBag: fullBag, shuffle: shuffle, newGame: newGame, analyze: analyze, invalidWords: invalidWords, play: play, exchange: exchange, pass: pass,
     challenge: challenge, canChallenge: canChallenge, acceptOut: acceptOut, endGame: endGame, viewFor: viewFor, rackValue: rackValue,
     chargeTime: chargeTime, overtimePenalty: overtimePenalty, timeLeft: timeLeft, genMoves: genMoves, topMoves: topMoves, coord: coord,
@@ -967,7 +1056,7 @@ var ACS_PWA = true;
   var CUSTOMS = {};   // id -> {id, name, count}
   function esc(s) { return String(s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
   var S = {
-    screen: 'setup', set: { mode: 'pass', count: 2, names: ['Aunty Carol', 'JP3', '', ''], name: '', dict: 'csw', custom: '', check: 'auto', pen: 'turn', clock: 'off', clockMin: 25 },
+    screen: 'setup', set: { mode: 'pass', count: 2, names: ['Aunty Carol', 'JP3', '', ''], name: '', dict: 'csw', custom: '', check: 'auto', pen: 'turn', clock: 'off', clockMin: 25, level: 'medium', cpuName: '' },
     G: null, V: null, Vok: null, outbox: null, orders: {}, pend: [], pendKey: '', sel: null, zoom: 1, cell: 30, baseCell: 30, revealed: -1, unlocked: '', pinged: null,
     seenLog: -1, seenGame: '', overSeen: '', hint: null, previewIdx: -1, nextId: 1, propDismiss: ''
   };
@@ -980,10 +1069,10 @@ var ACS_PWA = true;
   function toast(msg, ms) { var t = $('toast'); t.textContent = msg; t.hidden = false; clearTimeout(toastTimer); toastTimer = setTimeout(function () { t.hidden = true; }, ms || 2800); }
   function myName() { return ($('myName').value || S.set.name || '').trim(); }
   function mode() { return O.role ? 'online' : (S.G ? S.G.mode : S.set.mode); }
-  function view() { if (O.role === 'guest') return S.V; if (!S.G) return null; return E.viewFor(S.G, O.role === 'host' ? 0 : S.G.cur); }
+  function view() { if (O.role === 'guest') return S.V; if (!S.G) return null; return E.viewFor(S.G, O.role === 'host' || S.G.mode === 'cpu' ? 0 : S.G.cur); }
   function mySeat() { var v = view(); return v ? v.mySeat : 0; }
   function needsCover() { return mode() === 'pass' && S.G && !S.G.over && S.revealed !== S.G.turn; }
-  function isMyTurn() { var v = view(); if (!v || v.over || v.proposal) return false; if (mode() === 'pass') return !needsCover(); return v.cur === v.mySeat && !S.outbox; }
+  function isMyTurn() { var v = view(); if (!v || v.over || v.proposal) return false; if (mode() === 'pass') return !needsCover(); return v.cur === v.mySeat && !S.outbox && !S.aiAnim; }
   function nowHost() { return Date.now() + (O.role === 'guest' ? O.offset : 0); }
   function tileHtml(l, b, extra) { return '<div class="t' + (b ? ' blank' : '') + (extra ? ' ' + extra : '') + '">' + (l === '?' ? '' : l) + (b || l === '?' ? '' : '<sub>' + E.VALUES[l] + '</sub>') + '</div>'; }
   function clone(o) { return JSON.parse(JSON.stringify(o)); }
@@ -1161,6 +1250,8 @@ var ACS_PWA = true;
   function segBind(id, fn) { $(id).addEventListener('click', function (e) { var b = e.target.closest('button[data-v]'); if (!b) return; fn(b.dataset.v); save(); render(); }); }
   segBind('segMode', function (v) { if (O.role && v !== 'online') { if (!window.confirm('Leave the online game?')) return; leaveOnline(); } S.set.mode = v; });
   segBind('segCount', function (v) { S.set.count = +v; });
+  segBind('segLevel', function (v) { S.set.level = v; if (v === 'easy') loadDict('kids').catch(function () { }); });
+  $('cpuName').addEventListener('input', function () { S.set.cpuName = $('cpuName').value.trim(); save(); });
   segBind('segDict', function (v) { S.set.dict = v; var id = effDict(S.set); if (id) loadDict(id).catch(function () { }); if (O.role === 'host') broadcastLobby(); });
   segBind('segCheck', function (v) { S.set.check = v; if (O.role === 'host') broadcastLobby(); });
   segBind('segPen', function (v) { S.set.pen = v; if (O.role === 'host') broadcastLobby(); });
@@ -1216,7 +1307,9 @@ var ACS_PWA = true;
   function renderSetup() {
     var m = S.set.mode;
     segSet('segMode', O.role ? 'online' : m); segSet('segCount', S.set.count); segSet('segDict', S.set.dict); segSet('segCheck', S.set.check); segSet('segPen', S.set.pen); segSet('segClock', S.set.clock);
-    $('optPass').hidden = m !== 'pass' || !!O.role; $('optOnline').hidden = m !== 'online' && !O.role;
+    segSet('segLevel', S.set.level);
+    $('optPass').hidden = m !== 'pass' || !!O.role; $('optOnline').hidden = m !== 'online' && !O.role; $('optCpu').hidden = m !== 'cpu' || !!O.role;
+    if (document.activeElement !== $('cpuName') && !$('cpuName').value) $('cpuName').value = S.set.cpuName || '';
     renderPassNames(); renderCustomBox();
     $('dictNote').textContent = S.set.dict === 'custom' ? '' : BUILTIN[S.set.dict].note;
     $('checkNote').textContent = CHECK_NOTE[S.set.check];
@@ -1225,16 +1318,17 @@ var ACS_PWA = true;
     if (document.activeElement !== $('clockMin')) $('clockMin').value = S.set.clockMin;
     if (document.activeElement !== $('myName') && !$('myName').value) $('myName').value = S.set.name || '';
     $('hostOpts').hidden = !(!O.role || (O.role === 'host' && !O.started));
-    $('btnStart').hidden = m !== 'pass' || !!O.role;
-    var cont = S.G && !S.G.over && S.G.mode === 'pass' && !O.role;
+    $('btnStart').hidden = (m !== 'pass' && m !== 'cpu') || !!O.role; $('btnStart').textContent = m === 'cpu' ? '🤖 Play the computer' : '▶ Start game';
+    var cont = S.G && !S.G.over && (S.G.mode === 'pass' || S.G.mode === 'cpu') && !O.role;
     $('continueCard').hidden = !(cont || (O.role && O.started));
     $('continueNote').textContent = cont ? S.G.players.map(function (p) { return p.name + ' ' + p.score; }).join(' · ') : (O.started ? 'Online game in progress' : '');
     renderOnline();
   }
   $('btnStart').onclick = function () {
+    if (S.G && !S.G.over && (S.G.mode === 'pass' || S.G.mode === 'cpu') && !window.confirm('Start a new game? The current one will be replaced.')) return;
+    if (S.set.mode === 'cpu') { startCpu(); return; }
     var names = [];
     for (var i = 0; i < S.set.count; i++) names.push((S.set.names[i] || '').trim() || 'Player ' + (i + 1));
-    if (S.G && !S.G.over && S.G.mode === 'pass' && !window.confirm('Start a new game? The current one will be replaced.')) return;
     startLocal(names);
   };
   function dictMetaFor(id) { return CUSTOMS[id] ? { id: id, name: CUSTOMS[id].name, count: CUSTOMS[id].count } : null; }
@@ -1247,7 +1341,20 @@ var ACS_PWA = true;
       resetGameUi(); S.screen = 'game'; save(); render(); maybeHowto();
     }).catch(function (e) { $('btnStart').disabled = false; toast(e.message, 5000); });
   }
-  function resetGameUi() { S.orders = {}; S.pend = []; S.sel = null; S.revealed = -1; S.pinged = null; S.seenLog = 0; S.overSeen = ''; S.hint = null; S.previewIdx = -1; S.unlocked = ''; S.zoom = 1; S.outbox = null; S.propDismiss = ''; }
+  function startCpu() {
+    var id = effDict(S.set); if (!id) { toast('Load your word list first (📂 My own word list).', 4000); return; }
+    var name = ($('cpuName').value || S.set.cpuName || '').trim() || 'You', lvl = S.set.level || 'medium';
+    $('btnStart').disabled = true;
+    if (lvl === 'easy') loadDict('kids').catch(function () { });
+    loadDict(id).then(function () {
+      $('btnStart').disabled = false;
+      S.G = E.newGame({ players: [{ name: name }, { name: 'Computer', cpu: lvl }], dict: id, dictMeta: dictMetaFor(id), extra: customWords(), check: S.set.check, chPenalty: S.set.pen, clockMs: clockMs(S.set), mode: 'cpu' });
+      S.G.cur = Math.random() < 0.5 ? 0 : 1; S.G.turnStart = Date.now();
+      resetGameUi(); S.screen = 'game'; save(); render(); maybeHowto();
+      toast(S.G.cur === 0 ? 'You go first 🌸' : 'The computer goes first 🤖');
+    }).catch(function (e) { $('btnStart').disabled = false; toast(e.message, 5000); });
+  }
+  function resetGameUi() { S.aiAnim = null; S.aiBusy = null; S.orders = {}; S.pend = []; S.sel = null; S.revealed = -1; S.pinged = null; S.seenLog = 0; S.overSeen = ''; S.hint = null; S.previewIdx = -1; S.unlocked = ''; S.zoom = 1; S.outbox = null; S.propDismiss = ''; }
   $('btnContinue').onclick = function () { S.screen = 'game'; save(); render(); };
   $('btnHowto1').onclick = function () { $('howto').hidden = false; };
   $('howtoClose').onclick = function () { $('howto').hidden = true; try { localStorage.setItem(HOWTO_KEY, '1'); } catch (e) { /* */ } };
@@ -1266,6 +1373,7 @@ var ACS_PWA = true;
     var pendAt = {}, lastAt = {}, badAt = {}, propAt = {};
     S.pend.forEach(function (p) { pendAt[p.r * 15 + p.c] = p; });
     if (v.proposal) v.proposal.placed.forEach(function (p) { propAt[p.r * 15 + p.c] = p; });
+    var aiAt = {}; (S.aiAnim || []).forEach(function (p) { aiAt[p.r * 15 + p.c] = p; });
     if (v.last) v.last.placed.forEach(function (p) { var k = p.r * 15 + p.c; if (v.board[k]) lastAt[k] = 1; });
     var badgeK = -1, badgeTxt = '', badgeBad = false;
     if (info && info.ok) {
@@ -1279,6 +1387,7 @@ var ACS_PWA = true;
       if (t) html = tileHtml(t.l, t.b, (lastAt[k] ? 'last' : '') + (badAt[k] ? ' bad' : ''));
       else if (p) html = tileHtml(p.l, p.b, 'pend' + (S.previewIdx >= 0 ? ' prev' : '') + (badAt[k] ? ' bad' : '')) + (k === badgeK ? '<span class="badge' + (badgeBad ? ' bad' : '') + '">' + badgeTxt + '</span>' : '');
       else if (q) html = tileHtml(q.l, q.b, 'prev');
+      else if (aiAt[k]) html = tileHtml(aiAt[k].l, aiAt[k].b, 'cpunew');
       else html = d.dataset.lab;
       if (d._h !== html) { d.innerHTML = html; d._h = html; }
     }
@@ -1447,7 +1556,8 @@ var ACS_PWA = true;
       var clk = '';
       if (v.clock && v.clock.on) { var left = clockLeft(v, i); clk = '<span class="clk' + (left < 0 ? ' neg' : left < 120000 ? ' low' : '') + '" data-seat="' + i + '">⏱' + fmtClock(left) + '</span>'; }
       var me = (mode() !== 'pass' && i === v.mySeat) ? ' (you)' : '';
-      return '<div class="pl' + (i === v.cur && !v.over ? ' cur' : '') + '"><span class="nm">' + esc(p.name) + me + '</span><span class="sc">' + p.score + '</span>' + clk + '</div>';
+      var av = p.cpu ? '<span class="av" aria-hidden="true">🤖</span>' : '', lv = p.cpu ? ' <small>' + ({ easy: 'Easy', medium: 'Medium', expert: 'Expert' })[p.cpu] + '</small>' : '';
+      return '<div class="pl' + (i === v.cur && !v.over ? ' cur' : '') + (p.cpu ? ' cpu' : '') + '"><span class="nm">' + av + esc(p.name) + me + lv + '</span><span class="sc">' + p.score + '</span>' + clk + '</div>';
     }).join('');
     $('bagN').textContent = v.bag;
   }
@@ -1715,7 +1825,7 @@ var ACS_PWA = true;
   }
   $('overLook').onclick = function () { $('overOverlay').hidden = true; };
   $('overMenu').onclick = function () { $('overOverlay').hidden = true; S.screen = 'setup'; save(); render(); };
-  $('overNew').onclick = function () { $('overOverlay').hidden = true; if (O.role === 'host') { hostStart(); return; } startLocal(S.G.players.map(function (p) { return p.name; })); };
+  $('overNew').onclick = function () { $('overOverlay').hidden = true; if (O.role === 'host') { hostStart(); return; } if (S.G.mode === 'cpu') { startCpu(); return; } startLocal(S.G.players.map(function (p) { return p.name; })); };
 
   // ---------- main render ----------
   function processLog(v) {
@@ -1762,9 +1872,10 @@ var ACS_PWA = true;
     } else {
       st = O.role === 'guest' && S.outbox ? (O.connected ? 'Sending your move…' : '📴 Move saved — it will be sent when the connection is back') : 'Waiting for ' + nameOf(v, v.cur) + '…';
       lbl = 'Waiting for ' + nameOf(v, v.cur); cls = 'idle'; pb.disabled = true;
+      if (v.players[v.cur] && v.players[v.cur].cpu) { st = S.aiAnim ? '🤖 Computer is playing…' : '🤖 Computer is thinking'; lbl = S.aiAnim ? 'Computer is playing…' : 'Computer is thinking'; cls = 'idle'; }
     }
     $('playLbl').textContent = lbl; $('playPts').textContent = pts; pb.className = 'btn primary playbar' + (cls ? ' ' + cls : '');
-    $('status').textContent = st;
+    $('status').textContent = st; $('status').classList.toggle('thinking', /thinking$/.test(st)); $('playLbl').classList.toggle('thinking', /thinking$/.test(lbl));
     var last = v.log[v.log.length - 1]; $('lastline').innerHTML = last ? logText(last, v) : esc(settingsText({ id: v.dict, check: v.check, clock: v.clock.on ? 'custom' : 'off', clockMin: v.clock.ms / 60000 }, v.dictMeta));
     $('log').innerHTML = v.log.map(function (e) { return '<li>' + logText(e, v) + '</li>'; }).join('');
     var lg = $('log'); lg.scrollTop = lg.scrollHeight;
@@ -1776,8 +1887,77 @@ var ACS_PWA = true;
     processLog(v);
     checkTurnPing();
     if (v.over) showOver(false);
+    if (S.G && S.G.mode === 'cpu' && !O.role) setTimeout(maybeCpu, 0);
   }
   $('coverGo').onclick = function () { S.revealed = S.G.turn; if (S.G.clock.on && !S.G.over) S.G.turnStart = Date.now(); save(); render(); };
+
+  // ---------- computer opponent: runs in a Web Worker, short "thinking" pause, tiles animate onto the board ----------
+  var AI = { worker: null, mode: '', sent: {}, rid: 0, cbs: {}, moves: [], errors: [], failed: false };
+  function aiWorker() {
+    if (AI.worker || AI.failed) return AI.worker;
+    try {
+      var glue = '\n;var D={};self.onmessage=function(e){var m=e.data;if(m.cmd==="dict"){D[m.id]=new SE.Dawg(new Uint32Array(m.buf));return;}var t=Date.now();try{var a=SE.aiChoose(m.state,SE.lexicon(D[m.id],m.extra||[]),m.easy&&D[m.easy]?D[m.easy]:null);self.postMessage({rid:m.rid,a:a,ms:Date.now()-t});}catch(x){self.postMessage({rid:m.rid,err:String(x)});}};';
+      AI.worker = new Worker(URL.createObjectURL(new Blob([$('engineSrc').textContent + glue], { type: 'text/javascript' })));
+      AI.worker.onmessage = function (e) { var cb = AI.cbs[e.data.rid]; delete AI.cbs[e.data.rid]; if (cb) cb(e.data); };
+      AI.worker.onerror = function () { AI.failed = true; AI.worker = null; Object.keys(AI.cbs).forEach(function (k) { var cb = AI.cbs[k]; delete AI.cbs[k]; cb({ err: 'worker' }); }); };
+    } catch (e) { AI.failed = true; AI.worker = null; }
+    return AI.worker;
+  }
+  function aiCompute(state, dictId, easyId, extra) {
+    return new Promise(function (res) {
+      var local = function () { AI.mode = 'main'; setTimeout(function () { var t = Date.now(); res({ a: E.aiChoose(state, E.lexicon(DICTS[dictId], extra), easyId && DICTS[easyId] ? DICTS[easyId] : null), ms: Date.now() - t }); }, 0); };
+      var w = aiWorker(); if (!w) return local();
+      AI.mode = 'worker';
+      [dictId, easyId].forEach(function (id) { if (id && DICTS[id] && !AI.sent[id]) { w.postMessage({ cmd: 'dict', id: id, buf: DICTS[id].a.slice().buffer }); AI.sent[id] = 1; } });
+      var rid = ++AI.rid; AI.cbs[rid] = function (r) { if (r.err) local(); else res(r); };
+      w.postMessage({ cmd: 'move', rid: rid, id: dictId, easy: easyId && AI.sent[easyId] ? easyId : null, extra: extra, state: state });
+    });
+  }
+  function maybeCpu() {
+    var G = S.G; if (!G || G.mode !== 'cpu' || O.role || S.screen !== 'game' || G.over) return;
+    var seat = 1, P = G.players[seat];
+    if (G.proposal && G.proposal.seat !== seat) {      // you asked the computer to accept a word: it agrees (your game, your call)
+      var pk = 'p' + G.proposal.n; if (S.aiBusy === pk) return; S.aiBusy = pk;
+      setTimeout(function () { if (S.G !== G || !G.proposal || 'p' + G.proposal.n !== pk) { S.aiBusy = null; return; } applyAct(seat, 'vote', { yes: true }).then(function (r) { S.aiBusy = null; if (r.ok) toast('🤖 “Fine — I’ll allow it.”'); afterAct(); }); }, FAST ? 150 : 900);
+      return;
+    }
+    if (G.cur !== seat) return;
+    var key = G.id + ':' + G.turn + ':' + G.log.length;
+    if (S.aiBusy === key) return; S.aiBusy = key;
+    var lvl = P.level || 'medium', easyId = lvl === 'easy' ? 'kids' : null;
+    var stillMine = function () { return S.G === G && S.aiBusy === key && G.id + ':' + G.turn + ':' + G.log.length === key && !G.over; };
+    var fin = function (a, r) {
+      S.aiBusy = null;
+      if (a.type === 'challenge') toast(r && r.success ? '🤖 Computer challenged ' + a.words.join(', ') + ' — not a word, it comes off!' : '🤖 Computer challenged — the words were good.', 4500);
+      else if (a.type === 'exchange') toast('🤖 Computer swapped ' + a.letters.length + ' tile' + (a.letters.length > 1 ? 's' : ''));
+      else if (a.type === 'pass') toast('🤖 Computer passed');
+      afterAct();
+    };
+    var perform = function (a) {
+      var done = function (r) { if (r.ok) return fin(a, r); AI.errors.push({ type: a.type, word: a.word, err: r.err }); applyAct(seat, 'pass', {}).then(function (r2) { fin({ type: 'pass' }, r2); }); };
+      if (a.type !== 'play') return applyAct(seat, a.type, a.type === 'exchange' ? { letters: a.letters } : {}).then(done);
+      S.aiAnim = []; var i = 0, step = FAST ? 40 : 170;
+      (function next() {
+        if (S.G !== G) { S.aiAnim = null; return; }
+        if (i < a.placed.length) { S.aiAnim.push(a.placed[i++]); clack(); render(); setTimeout(next, step); return; }
+        setTimeout(function () { S.aiAnim = null; applyAct(seat, 'play', { placed: a.placed }).then(done); }, step);
+      })();
+    };
+    var go = function () {
+      if (!stillMine()) return;
+      var state = { board: G.board.slice(), rack: P.rack.slice(), bag: G.bag.length, level: lvl, check: G.check, last: G.last && G.last.seat !== seat ? { words: G.last.words } : null,
+        canChallenge: E.canChallenge(G, seat), pendingOut: G.pendingOut != null && G.pendingOut !== seat, oppTiles: G.players[0].rack.length, seed: (Math.random() * 1e9) | 0 };
+      var t0 = performance.now(), delay = (800 + Math.random() * 1200) * (FAST ? 0.15 : 1);
+      aiCompute(state, G.dict, easyId, G.extra || []).then(function (r) {
+        setTimeout(function () {
+          if (!stillMine()) return;
+          AI.moves.push({ type: r.a.type, word: r.a.word || '', score: r.a.score || 0, ms: r.ms, think: Math.round(performance.now() - t0), level: lvl, via: AI.mode });
+          perform(r.a);
+        }, Math.max(0, delay - (performance.now() - t0)));
+      });
+    };
+    loadDict(G.dict).then(function () { return easyId ? loadDict(easyId).catch(function () { }) : null; }).then(go, function (e) { S.aiBusy = null; toast(e.message, 5000); });
+  }
 
   // ---------- online play (PeerJS over WebRTC; host's device runs the game) ----------
   var PEER_SRC = ['https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js', 'https://cdn.jsdelivr.net/npm/peerjs@1.5.4/dist/peerjs.min.js'];
@@ -2121,7 +2301,7 @@ var ACS_PWA = true;
     if (d.G && d.G.board && d.G.players) S.G = d.G;
     S.orders = d.orders || {}; S.nextId = d.nextId || 1; S.revealed = d.revealed === undefined ? -1 : d.revealed; S.seenLog = d.seenLog == null ? -1 : d.seenLog; S.seenGame = d.seenGame || '';
     S.overSeen = d.overSeen || ''; S.pinged = d.pinged || null; O.cid = d.cid || '';
-    S.screen = d.screen === 'game' && S.G && S.G.mode === 'pass' ? 'game' : 'setup';
+    S.screen = d.screen === 'game' && S.G && (S.G.mode === 'pass' || S.G.mode === 'cpu') ? 'game' : 'setup';
     if (d.online && d.online.role === 'guest' && d.online.code) {
       O.code = d.online.code;
       if (d.V) { S.V = d.V; S.Vok = d.V; S.outbox = d.outbox || null; if (S.outbox) { S.outbox.sentConn = -1; S.V = optimistic(d.V, S.outbox) || d.V; } }
@@ -2158,7 +2338,7 @@ var ACS_PWA = true;
   var bootDict = effDict(S.set); if (bootDict) loadDict(bootDict).catch(function () { });
   if (S.V) ensureDict(S.V.dict, S.V.dictMeta);
   render();
-  window.__ACS = { S: S, O: O, E: E, view: view, render: render, DICTS: DICTS, CUSTOMS: CUSTOMS, loadDict: loadDict, buildList: buildList, hints: { get computed() { return STATS.hints; } }, stats: STATS, ping: PING, petals: PETALS, setZoom: setZoom, drag: DRAG, squareAt: squareAt, customWords: customWords, getIce: getIce, revive: revive };
+  window.__ACS = { S: S, O: O, E: E, view: view, render: render, DICTS: DICTS, CUSTOMS: CUSTOMS, loadDict: loadDict, buildList: buildList, hints: { get computed() { return STATS.hints; } }, stats: STATS, ping: PING, petals: PETALS, setZoom: setZoom, drag: DRAG, squareAt: squareAt, customWords: customWords, getIce: getIce, revive: revive, ai: AI };
 })();
 
 </script>

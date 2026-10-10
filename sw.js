@@ -1,5 +1,5 @@
 // Aunty Carol's Scrabble service worker: app shell + word lists cached so it opens offline from the Home Screen.
-var CACHE = 'carol-scrabble-313aba61de';
+var CACHE = 'carol-scrabble-d8c1356aed';
 var DICT_CACHE = 'carol-scrabble-dict-v2';   // bump when the built-in word lists change
 var SHELL = ['./', './index.html', './manifest.webmanifest', './icons/icon-192.png', './icons/icon-512.png', './icons/apple-touch-icon.png'];
 self.addEventListener('install', function (e) {

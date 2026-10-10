@@ -33,3 +33,9 @@ The Wordnik list added ~22,000 words over the previous Collins-style build, many
 
 Format: each list is a DAWG (minimised trie) stored as a little-endian Uint32 edge array (`dict/*.dawg`). The selected list is
 preloaded when the game is set up / joined, so checking a word is a local lookup of a few microseconds.
+
+## Play the computer — which words it uses
+- **Easy** finds its moves in the kid-friendly everyday list (SCOWL size 35), then keeps only plays whose words are *also* valid in the game's chosen dictionary. It picks at random from the 25th–60th percentile of scores. If no everyday-word play fits the board, it falls back to the game dictionary. The computer never plays words outside the game's dictionary.
+- **Medium** uses the game dictionary and picks at random from the 60th–80th percentile of scores.
+- **Expert** uses the game dictionary. It plays for score plus a simple leave value: it values keeping a blank, S, E, R, X, Z, ER, ING or QU, and penalises duplicate tiles, vowel-heavy or consonant-heavy leaves, and Q/V/W/U. When its rack is bad and the bag has at least 7 tiles, it swaps tiles instead.
+- In trust (challenge-only) mode only Expert challenges, and it challenges only words that aren't in the dictionary. If you ask the computer to accept a word, it always agrees.
